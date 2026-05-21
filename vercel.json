@@ -1,6 +1,8 @@
 {
   "rewrites": [
+    { "source": "/aigovernance", "destination": "https://kozai-ai-governance.vercel.app/aigovernance" },
+    { "source": "/aigovernance/:path*", "destination": "https://kozai-ai-governance.vercel.app/aigovernance/:path*" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)",     "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
