@@ -3,13 +3,18 @@ import Reveal from "@/components/Reveal";
 
 /**
  * BeforeAfter — drag-to-compare block.
- * LEFT (Before):  chaotic spreadsheet.
- * RIGHT (After):  kozai-built dispatch operator console.
- * Drag the handle right to reveal more of After.
+ * LEFT (Before):  chaotic spreadsheet — auto-scrolls rows like a video.
+ * RIGHT (After):  kozai-built dispatch console — a fake cursor clicks
+ *                 through rows + actions on a loop, so it feels alive.
  *
- * Mobile (<768px): tab toggle.
+ * Mobile (<768px): tab toggle. Both sides re-flow into a taller, single
+ * column composition so nothing is squished.
+ *
+ * Both animations pause when the section is off-screen via IO, and
+ * respect prefers-reduced-motion (static fallback).
  */
 
+// 20 rows of "data" — duplicated in the track to make scrolling seamless.
 const SHEET_ROWS = [
   ["SKU-1042", "Aurora 12pk",        "Northgate Distrib",  "ON",  "47",   "$1,284.50"],
   ["SKU-1043", "Aurora 24pk",        "Northgate Distrib",  "ON",  "12",   "$642.20"],
@@ -23,99 +28,144 @@ const SHEET_ROWS = [
   ["SKU-5513", "Harlan Pack XL",     "Harlan Foods",       "AB",  "98",   "$3,140.80"],
   ["SKU-6720", "Fairlane Strap",     "Fairlane Freight",   "ON",  "??",   "TBD"],
   ["SKU-6721", "Fairlane Strap XL",  "fairlane freight",   "on",  "44",   "#N/A"],
-];
+  ["SKU-7102", "Mariner Hook",       "Mariner Supply",     "NS",  "120",  "$2,402.00"],
+  ["SKU-7103", "Mariner Hook XL",    "Mariner Supply",     "NS",  "14",   "$298.00"],
+  ["SKU-8210", "Cedar Cone",         "Cedar Outdoors",     "BC",  "—",    "#REF!"],
+  ["SKU-8211", "Cedar Cone (sm)",    "Cedar Outdoors",     "BC",  "82",   "$1,114.10"],
+  ["SKU-9001", "Quintile Pen",       "Quintile Office",    "ON",  "1,204","$2,408.00"],
+  ["SKU-9002", "Quintile Pen XL",    "quintile office",    "on",  "24",   "$120.00"],
+  ["SKU-9501", "Pinecrest Tag",      "Pinecrest Realty",   "ON",  "55",   "$1,375.00"],
+  ["SKU-9502", "Pinecrest Tag (alt)","Pinecrest Realty",   "ON",  "—",    "#N/A"],
+] as const;
 
-const Spreadsheet = () => {
+const Spreadsheet = ({ playing }: { playing: boolean }) => {
+  // Render the rows twice so a -50% translateY loop is seamless.
+  const rows = [...SHEET_ROWS, ...SHEET_ROWS];
+
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#FBFAF6] font-mono text-[11px] text-ink/85">
+    <div className="relative h-full w-full overflow-hidden bg-[#FBFAF6] font-mono text-[10px] text-ink/85 md:text-[11px]">
       {/* Faux Excel toolbar */}
-      <div className="flex items-center gap-3 border-b border-ink/15 bg-[#E8E4D8] px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-ink/55">
-        <span>inventory_2026_05_v17_FINAL_v2 (copy)(jen-edits).xlsx</span>
-        <span className="ml-auto text-ink/40">— Excel</span>
+      <div className="flex items-center gap-3 border-b border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[9px] uppercase tracking-[0.16em] text-ink/55 md:px-3 md:py-1.5 md:text-[10px]">
+        <span className="truncate">inventory_2026_05_v17_FINAL_v2 (copy)(jen-edits).xlsx</span>
+        <span className="ml-auto shrink-0 text-ink/40">— Excel</span>
       </div>
-      <div className="flex items-center gap-2 border-b border-ink/10 bg-[#F3EFE3] px-3 py-1 text-[10px] text-ink/60">
+      <div className="flex items-center gap-2 border-b border-ink/10 bg-[#F3EFE3] px-2.5 py-1 text-[9px] text-ink/60 md:px-3 md:text-[10px]">
         <span>F12</span>
         <span className="text-ink/30">|</span>
         <span className="text-ink/55">fx</span>
-        <span className="text-ink/40">=IFERROR(VLOOKUP(A12,prices!A:C,3,FALSE),"#REF!")</span>
+        <span className="truncate text-ink/40">=IFERROR(VLOOKUP(A12,prices!A:C,3,FALSE),"#REF!")</span>
       </div>
-      <div className="overflow-hidden">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="bg-[#EDE8D9] text-[10px] uppercase tracking-[0.14em] text-ink/55">
-              {["A · SKU", "B · Item", "C · Client", "D · Prov", "E · Qty", "F · Value"].map((h) => (
-                <th key={h} className="border border-ink/15 px-2 py-1 font-normal">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {SHEET_ROWS.map((r, i) => {
-              const highlight = i === 4 ? "rgba(252,211,77,0.35)" : i === 8 ? "rgba(134,239,172,0.30)" : undefined;
+
+      {/* Column header row (static, never scrolls) */}
+      <div className="grid grid-cols-[64px_1fr_1.2fr_42px_56px_82px] border-b border-ink/15 bg-[#EDE8D9] text-[9px] uppercase tracking-[0.14em] text-ink/55 md:text-[10px]">
+        {["A · SKU", "B · Item", "C · Client", "D · Pv", "E · Qty", "F · Value"].map((h, i) => (
+          <div key={h} className={`px-2 py-1 ${i < 5 ? "border-r border-ink/15" : ""}`}>
+            {h}
+          </div>
+        ))}
+      </div>
+
+      {/* Scrolling rows section */}
+      <div className="relative" style={{ height: "calc(100% - 188px)" }}>
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={{
+            maskImage:
+              "linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%)",
+          }}
+        >
+          <div
+            className="will-change-transform"
+            style={{
+              animation: playing
+                ? "kz-sheet-scroll 32s linear infinite"
+                : undefined,
+            }}
+          >
+            {rows.map((r, i) => {
+              const real = i % SHEET_ROWS.length;
+              const highlight =
+                real === 4
+                  ? "rgba(252,211,77,0.35)"
+                  : real === 8
+                    ? "rgba(134,239,172,0.30)"
+                    : real === 16
+                      ? "rgba(186,210,250,0.30)"
+                      : undefined;
               return (
-                <tr key={i} className={i % 2 ? "bg-[#FBFAF6]" : "bg-[#F6F2E6]"}>
+                <div
+                  key={i}
+                  className={`grid grid-cols-[64px_1fr_1.2fr_42px_56px_82px] border-b border-ink/10 ${
+                    real % 2 ? "bg-[#FBFAF6]" : "bg-[#F6F2E6]"
+                  }`}
+                >
                   {r.map((cell, ci) => {
                     const isErr = cell === "#REF!" || cell === "#ERROR!" || cell === "#N/A";
                     const isTbd = cell === "TBD" || cell === "??";
                     return (
-                      <td
+                      <div
                         key={ci}
-                        className="border border-ink/15 px-2 py-[3px] tabular-nums"
+                        className={`px-2 py-[3px] tabular-nums ${ci < 5 ? "border-r border-ink/10" : ""} ${ci === 1 || ci === 2 ? "truncate" : ""}`}
                         style={{
                           color: isErr ? "#B5321A" : isTbd ? "#A85B12" : undefined,
-                          background: isErr ? "rgba(181,50,26,0.10)" : ci === 0 ? undefined : highlight,
+                          background: isErr
+                            ? "rgba(181,50,26,0.10)"
+                            : ci === 0
+                              ? undefined
+                              : highlight,
                           fontWeight: isErr ? 600 : undefined,
                         }}
                       >
                         {cell}
-                      </td>
+                      </div>
                     );
                   })}
-                </tr>
+                </div>
               );
             })}
-            {/* merged-looking totals row */}
-            <tr className="bg-[#EFEAD9]">
-              <td className="border border-ink/15 px-2 py-1 text-ink/55" colSpan={4}>
-                Σ Row totals (manual — fix later)
-              </td>
-              <td className="border border-ink/15 px-2 py-1 tabular-nums text-ink/70">879?</td>
-              <td className="border border-ink/15 px-2 py-1 tabular-nums" style={{ color: "#B5321A" }}>#REF!</td>
-            </tr>
-            <tr className="bg-[#FBFAF6]">
-              <td className="border border-ink/10 px-2 py-1 text-[10px] text-ink/55" colSpan={3}>
-                =SUMIF(D:D,"ON",F:F)
-              </td>
-              <td className="border border-ink/10 px-2 py-1 tabular-nums text-ink/55" colSpan={3}>
-                $15,183 (excl. errors)
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-ink/10 px-2 py-1 text-[10px] text-ink/45" colSpan={6}>
-                ! 3 errors in col F · VLOOKUP returning #N/A for SKU-2091, SKU-4001, SKU-6721 · case mismatch row 13
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
-      <div className="absolute bottom-0 left-0 right-0 flex items-center gap-3 border-t border-ink/15 bg-[#E8E4D8] px-3 py-1 text-[9px] uppercase tracking-[0.14em] text-ink/55">
+
+      {/* Bottom tabs strip — static */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center gap-2.5 overflow-hidden border-t border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[8px] uppercase tracking-[0.12em] text-ink/55 md:gap-3 md:px-3 md:text-[9px] md:tracking-[0.14em]">
         <span>Sheet1</span>
         <span>Sheet2</span>
-        <span>backup_2025-12-03 (3)</span>
-        <span>do_not_delete</span>
-        <span>prices_OLD</span>
-        <span className="ml-auto text-[#B5321A]">3 errors · unsaved 14m</span>
+        <span className="hidden sm:inline">backup_2025-12-03 (3)</span>
+        <span className="hidden md:inline">do_not_delete</span>
+        <span className="hidden sm:inline">prices_OLD</span>
+        <span className="ml-auto shrink-0 whitespace-nowrap text-[#B5321A]">3 errors · unsaved 14m</span>
       </div>
     </div>
   );
 };
 
-const DISPATCHES = [
-  { route: "RT-2841", customer: "Northgate Distribution", vehicle: "TRK-12", status: "in transit", eta: "ETA 2:14p" },
-  { route: "RT-2842", customer: "Merrick Medical", vehicle: "TRK-04", status: "scheduled", eta: "Depart 1:30p" },
-  { route: "RT-2843", customer: "Ironwood Mfg", vehicle: "TRK-09", status: "delivered", eta: "Done 12:48p" },
-  { route: "RT-2844", customer: "Atrium Partners", vehicle: "TRK-15", status: "in transit", eta: "ETA 3:02p" },
-  { route: "RT-2845", customer: "Harlan Foods", vehicle: "TRK-21", status: "scheduled", eta: "Depart 2:45p" },
-  { route: "RT-2846", customer: "Fairlane Freight", vehicle: "TRK-07", status: "delivered", eta: "Done 11:32a" },
+interface Dispatch {
+  route: string;
+  customer: string;
+  vehicle: string;
+  status: string;
+  eta: string;
+  address: string;
+  contact: string;
+  notes: string;
+}
+
+const DISPATCHES: Dispatch[] = [
+  { route: "RT-2841", customer: "Northgate Distribution", vehicle: "TRK-12", status: "in transit", eta: "ETA 2:14p",
+    address: "418 Industrial Pkwy, Hamilton ON",   contact: "Marcus Hale · (905) 555-0142",  notes: "Dock B · ring bell twice. Avoid 10–11a shift change." },
+  { route: "RT-2842", customer: "Merrick Medical",        vehicle: "TRK-04", status: "scheduled",  eta: "Depart 1:30p",
+    address: "1212 Centre St, Mississauga ON",     contact: "Priya Shah · (905) 555-0188",   notes: "Gate code 4471 · loading bay 3 only." },
+  { route: "RT-2843", customer: "Ironwood Mfg",           vehicle: "TRK-09", status: "delivered",  eta: "Done 12:48p",
+    address: "78 Foundry Rd, Brantford ON",        contact: "Linda Park · (519) 555-0103",   notes: "Signed for by L. Park · photo on file." },
+  { route: "RT-2844", customer: "Atrium Partners",        vehicle: "TRK-15", status: "in transit", eta: "ETA 3:02p",
+    address: "4400 Yonge St, Toronto ON",          contact: "Reza Tehrani · (416) 555-0271", notes: "Concierge: leave with desk." },
+  { route: "RT-2845", customer: "Harlan Foods",           vehicle: "TRK-21", status: "scheduled",  eta: "Depart 2:45p",
+    address: "9 Logistics Way, Vaughan ON",        contact: "T. Adeyemi · (905) 555-0244",   notes: "Refrigerated unit required." },
+  { route: "RT-2846", customer: "Fairlane Freight",       vehicle: "TRK-07", status: "delivered",  eta: "Done 11:32a",
+    address: "61 Cargo Blvd, Etobicoke ON",        contact: "Sam Cho · (416) 555-0322",      notes: "Multi-pallet — driver to confirm count." },
 ];
 
 const statusColor = (s: string) => {
@@ -124,24 +174,82 @@ const statusColor = (s: string) => {
   return { color: "rgba(15,15,18,0.55)", bg: "rgba(15,15,18,0.05)" };
 };
 
-const KozaiConsole = () => {
-  const selected = DISPATCHES[0];
+/**
+ * Cursor cycle — moves between row positions and the CTA, clicking each.
+ * Indices: 0–5 → rows. 6 → "Mark delivered" CTA. Loops.
+ */
+const CURSOR_STEPS: number[] = [1, 3, 0, 6, 2, 4, 0, 6];
+
+const KozaiConsole = ({ playing }: { playing: boolean }) => {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [stepI, setStepI] = useState(0);
+  const [clicking, setClicking] = useState(false);
+  const [ctaPulse, setCtaPulse] = useState(false);
+  const selected = DISPATCHES[selectedIdx];
+
+  useEffect(() => {
+    if (!playing) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;
+    let cancelled = false;
+    let i = stepI;
+    const tick = () => {
+      if (cancelled) return;
+      const target = CURSOR_STEPS[i % CURSOR_STEPS.length];
+      setStepI(i);
+      // After the cursor visibly arrives (~0.9s), trigger the "click".
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setClicking(true);
+        if (target === 6) {
+          setCtaPulse(true);
+          window.setTimeout(() => setCtaPulse(false), 700);
+        } else {
+          setSelectedIdx(target);
+        }
+        window.setTimeout(() => setClicking(false), 320);
+      }, 900);
+      i++;
+      window.setTimeout(tick, 2400);
+    };
+    const initial = window.setTimeout(tick, 700);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initial);
+    };
+    // intentionally only re-runs when playing flips
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing]);
+
+  // Cursor target coordinates inside the console:
+  //  - rows 0..5 are at top: ~ (toolbar+top bar offset) + i*42
+  //  - CTA "Mark delivered" sits in the right detail panel near the bottom
+  const currentTarget = CURSOR_STEPS[stepI % CURSOR_STEPS.length];
+  const cursorPos =
+    currentTarget === 6
+      ? { left: "85%", top: "calc(100% - 60px)" }
+      : { left: "42%", top: `calc(96px + ${currentTarget * 42}px)` };
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-paper">
       {/* Top bar */}
-      <div className="flex items-center gap-4 border-b border-ink/12 px-5 py-2.5">
-        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-mute">DISPATCH · v2.1</div>
-        <div className="relative mx-auto w-[280px]">
+      <div className="flex items-center gap-3 border-b border-ink/12 px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
+        <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-mute md:text-[10px] md:tracking-[0.28em]">
+          DISPATCH · v2.1
+        </div>
+        <div className="relative mx-auto hidden w-[200px] sm:block md:w-[280px]">
           <input
             disabled
             value="Search route, customer, vehicle…"
-            className="w-full border border-ink/12 bg-paper px-3 py-1.5 font-mono text-[11px] text-mute/70"
+            className="w-full border border-ink/12 bg-paper px-3 py-1.5 font-mono text-[10px] text-mute/70 md:text-[11px]"
             readOnly
           />
         </div>
-        <div className="flex items-center gap-2">
-          <div className="h-6 w-6 border border-ink/15 bg-ink/5 flex items-center justify-center font-mono text-[10px] text-ink/70">JR</div>
-          <div className="leading-tight">
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center border border-ink/15 bg-ink/5 font-mono text-[10px] text-ink/70">
+            JR
+          </div>
+          <div className="hidden leading-tight md:block">
             <div className="text-[11px] text-ink">Jen Reyes</div>
             <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-mute">Lead dispatcher</div>
           </div>
@@ -149,79 +257,137 @@ const KozaiConsole = () => {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-ink/10 px-5 py-2">
-        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em]">
-          <span className="border border-ink/20 px-2 py-1 text-ink">Today · All · Pending · 6</span>
-          <span className="border border-ink/15 px-2 py-1 text-mute">Region · GTA-West</span>
-          <span className="border border-ink/15 px-2 py-1 text-mute">Status · Active</span>
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-ink/10 px-3 py-2 md:gap-2 md:px-5">
+        <div className="flex flex-wrap items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.16em] md:gap-2 md:text-[10px] md:tracking-[0.18em]">
+          <span className="border border-ink/20 px-2 py-1 text-ink">Today · 6</span>
+          <span className="hidden border border-ink/15 px-2 py-1 text-mute sm:inline">Region · GTA-W</span>
+          <span className="hidden border border-ink/15 px-2 py-1 text-mute md:inline">Status · Active</span>
         </div>
         <button
           type="button"
-          className="ml-auto px-3 py-1.5 text-[12px] font-medium"
+          className={`ml-auto px-2.5 py-1.5 text-[11px] font-medium transition-transform md:text-[12px] ${
+            ctaPulse ? "scale-[0.96]" : "scale-100"
+          }`}
           style={{ background: "#F5803E", color: "#F1EEE5" }}
         >
           + New dispatch
         </button>
       </div>
 
-      {/* Split body */}
-      <div className="flex" style={{ height: "calc(100% - 96px - 28px)" }}>
-        {/* LEFT 60% — dispatch rows */}
-        <div className="w-[60%] border-r border-ink/10 overflow-hidden">
+      {/* Body — desktop is row-list (60) + detail (40); mobile stacks vertical. */}
+      <div
+        className="flex flex-col md:flex-row"
+        style={{ height: "calc(100% - 84px - 28px)" }}
+      >
+        {/* Rows list */}
+        <div className="relative w-full overflow-hidden border-b border-ink/10 md:w-[60%] md:border-b-0 md:border-r">
           <ul>
             {DISPATCHES.map((d, i) => {
-              const isActive = i === 0;
+              const isActive = i === selectedIdx;
+              const isTargeting =
+                playing && CURSOR_STEPS[stepI % CURSOR_STEPS.length] === i;
               const sc = statusColor(d.status);
               return (
                 <li
                   key={d.route}
-                  className="flex items-center gap-3 border-b border-ink/08 px-4 py-2.5"
+                  className="relative flex items-center gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-2.5"
                   style={{
+                    borderBottom: "1px solid rgba(15,15,18,0.08)",
                     borderLeft: isActive ? "2px solid #F5803E" : "2px solid transparent",
-                    background: isActive ? "rgba(245,128,62,0.04)" : undefined,
+                    background: isActive ? "rgba(245,128,62,0.05)" : undefined,
+                    transition: "background 220ms cubic-bezier(0.16,1,0.3,1), border-color 220ms",
                   }}
                 >
-                  <div className="font-mono text-[11px] text-ink/85 w-[60px]">{d.route}</div>
-                  <div className="flex-1 text-[13px] text-ink truncate">{d.customer}</div>
-                  <div className="font-mono text-[10px] text-mute w-[54px]">{d.vehicle}</div>
+                  {/* Click ripple */}
+                  {isTargeting && clicking && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute left-[42%] top-1/2 -translate-x-1/2 -translate-y-1/2"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: "50%",
+                        border: "1.5px solid #F5803E",
+                        animation: "kz-cursor-ripple 0.42s cubic-bezier(0.16,1,0.3,1)",
+                      }}
+                    />
+                  )}
+                  <div className="w-[58px] shrink-0 font-mono text-[10px] text-ink/85 md:text-[11px]">{d.route}</div>
+                  <div className="flex-1 truncate text-[12px] text-ink md:text-[13px]">{d.customer}</div>
+                  <div className="hidden w-[54px] shrink-0 font-mono text-[10px] text-mute sm:block">{d.vehicle}</div>
                   <div
-                    className="font-mono text-[9px] uppercase tracking-[0.18em] px-2 py-0.5"
+                    className="font-mono text-[8.5px] uppercase tracking-[0.14em] px-1.5 py-0.5 md:text-[9px] md:tracking-[0.18em] md:px-2"
                     style={{ color: sc.color, background: sc.bg }}
                   >
                     {d.status}
                   </div>
-                  <div className="font-mono text-[10px] text-ink/70 w-[78px] text-right">{d.eta}</div>
+                  <div className="hidden w-[76px] shrink-0 text-right font-mono text-[10px] text-ink/70 sm:block">{d.eta}</div>
                 </li>
               );
             })}
           </ul>
+
+          {/* Fake cursor — sits inside the rows section so coords are local. */}
+          {playing && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute z-20 hidden md:block"
+              style={{
+                left: cursorPos.left,
+                top: cursorPos.top,
+                transform: clicking ? "translate(-2px,-2px) scale(0.92)" : "translate(0,0) scale(1)",
+                transition:
+                  "left 0.7s cubic-bezier(0.16,1,0.3,1), top 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1)",
+              }}
+            >
+              <svg width="18" height="22" viewBox="0 0 18 22" fill="none">
+                <path
+                  d="M2 1 L2 17 L6 13 L9 20 L11.5 19 L8.5 12 L14 12 Z"
+                  fill="#0F0F12"
+                  stroke="#F1EEE5"
+                  strokeWidth="1.1"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          )}
         </div>
 
-        {/* RIGHT 40% — detail panel */}
-        <div className="w-[40%] flex flex-col">
-          <div className="border-b border-ink/10 px-4 py-2.5">
+        {/* Detail panel */}
+        <div className="relative flex w-full flex-col md:w-[40%]">
+          <div className="border-b border-ink/10 px-3 py-2 md:px-4 md:py-2.5">
             <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Selected · {selected.route}</div>
-            <div className="mt-0.5 text-[14px] font-semibold text-ink">{selected.customer}</div>
+            <div
+              key={selected.route}
+              className="mt-0.5 text-[13px] font-semibold text-ink md:text-[14px]"
+              style={{ animation: "kz-detail-in 0.32s cubic-bezier(0.16,1,0.3,1)" }}
+            >
+              {selected.customer}
+            </div>
           </div>
-          <div className="px-4 py-3 space-y-2.5 text-[12px] text-ink/80 leading-[1.5]">
+          <div
+            key={selected.route + "-body"}
+            className="space-y-2 px-3 py-2.5 text-[11px] leading-[1.5] text-ink/80 md:space-y-2.5 md:px-4 md:py-3 md:text-[12px]"
+            style={{ animation: "kz-detail-in 0.42s cubic-bezier(0.16,1,0.3,1)" }}
+          >
             <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-mute mb-0.5">Address</div>
-              <div>418 Industrial Pkwy, Hamilton ON</div>
+              <div className="mb-0.5 font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Address</div>
+              <div>{selected.address}</div>
             </div>
             <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-mute mb-0.5">Contact</div>
-              <div>Marcus Hale · (905) 555-0142</div>
+              <div className="mb-0.5 font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Contact</div>
+              <div>{selected.contact}</div>
             </div>
             <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-mute mb-0.5">Notes</div>
-              <div className="text-ink/70">Dock B · ring bell twice. Avoid 10–11a shift change.</div>
+              <div className="mb-0.5 font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Notes</div>
+              <div className="text-ink/70">{selected.notes}</div>
             </div>
           </div>
 
           {/* Tiny route map */}
-          <div className="mx-4 mb-3 border border-ink/10 bg-ink/02 p-2">
-            <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-mute mb-1">Route</div>
-            <svg viewBox="0 0 200 50" width="100%" height="40" aria-hidden>
+          <div className="mx-3 mb-3 border border-ink/10 bg-ink/[0.02] p-2 md:mx-4">
+            <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Route</div>
+            <svg viewBox="0 0 200 50" width="100%" height="36" aria-hidden>
               <path
                 d="M 8 35 Q 40 10, 70 30 T 130 22 T 192 14"
                 fill="none"
@@ -229,6 +395,9 @@ const KozaiConsole = () => {
                 strokeOpacity="0.65"
                 strokeWidth="1.2"
                 strokeLinecap="round"
+                strokeDasharray="220"
+                strokeDashoffset={playing ? 0 : 220}
+                style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1)" }}
               />
               <circle cx="8" cy="35" r="2.5" fill="#0F0F12" />
               <circle cx="70" cy="30" r="2.5" fill="#0F0F12" />
@@ -239,18 +408,35 @@ const KozaiConsole = () => {
 
           <button
             type="button"
-            className="mx-4 mb-4 mt-auto px-3 py-2 text-[12px] font-medium border border-ink"
-            style={{ background: "#0F0F12", color: "#F1EEE5" }}
+            className={`relative mx-3 mb-3 mt-auto border border-ink px-3 py-2 text-[12px] font-medium md:mx-4 md:mb-4 ${
+              ctaPulse ? "scale-[0.97]" : "scale-100"
+            }`}
+            style={{
+              background: "#0F0F12",
+              color: "#F1EEE5",
+              transition: "transform 220ms cubic-bezier(0.16,1,0.3,1)",
+            }}
           >
             Mark delivered
+            {/* Click ripple on CTA */}
+            {ctaPulse && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  border: "1.5px solid #F5803E",
+                  animation: "kz-cta-ripple 0.6s cubic-bezier(0.16,1,0.3,1)",
+                }}
+              />
+            )}
           </button>
         </div>
       </div>
 
       {/* Bottom status */}
-      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between border-t border-ink/12 px-5 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-mute">
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between border-t border-ink/12 bg-paper px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.18em] text-mute md:px-5 md:py-2 md:text-[10px] md:tracking-[0.22em]">
         <span>[ ✦ — synced 12s ago ]</span>
-        <span className="text-ink/70">6 active · 2 delivered today</span>
+        <span className="hidden text-ink/70 sm:inline">6 active · 2 delivered today</span>
       </div>
     </div>
   );
@@ -258,10 +444,12 @@ const KozaiConsole = () => {
 
 const BeforeAfter = () => {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const [pos, setPos] = useState(50); // percent — width of LEFT (Before) pane
   const [dragging, setDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileTab, setMobileTab] = useState<"before" | "after">("before");
+  const [inView, setInView] = useState(true);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -269,6 +457,20 @@ const BeforeAfter = () => {
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Pause animations when off-screen
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) setInView(e.isIntersecting);
+      },
+      { threshold: 0.05 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
 
   const setFromClientX = useCallback((clientX: number) => {
@@ -296,22 +498,26 @@ const BeforeAfter = () => {
     if (e.key === "ArrowRight") setPos((p) => Math.min(98, p + 4));
   };
 
+  // Mobile = stacked tall composition; desktop = side-by-side w/ drag handle.
+  const containerHeight = isMobile ? "min(78vh, 700px)" : "560px";
+
   return (
     <section
+      ref={sectionRef}
       id="before-after"
       data-snap
-      className="relative px-6 py-24 md:px-10 md:py-28"
+      className="relative px-6 py-20 md:px-10 md:py-28"
     >
       <div className="container-wide">
         <Reveal>
-          <div className="mb-12 grid grid-cols-1 gap-8 md:grid-cols-12 md:items-end md:gap-12">
+          <div className="mb-10 grid grid-cols-1 gap-6 md:mb-12 md:grid-cols-12 md:items-end md:gap-12">
             <div className="md:col-span-3">
               <div className="label">[ ✦ — Before / After ]</div>
             </div>
             <div className="md:col-span-9">
               <h2
                 className="display max-w-[26ch] text-ink"
-                style={{ fontSize: "clamp(2rem, 5.2vw, 4rem)" }}
+                style={{ fontSize: "clamp(1.8rem, 5.2vw, 4rem)" }}
               >
                 The spreadsheet you have.
                 <span className="text-mute"> The screen you could have.</span>
@@ -336,14 +542,22 @@ const BeforeAfter = () => {
                 </button>
               ))}
             </div>
-            <div className="relative h-[560px] border border-hairline/15">
-              {mobileTab === "before" ? <Spreadsheet /> : <KozaiConsole />}
+            <div
+              className="relative border border-hairline/15"
+              style={{ height: containerHeight }}
+            >
+              {mobileTab === "before" ? (
+                <Spreadsheet playing={inView} />
+              ) : (
+                <KozaiConsole playing={inView} />
+              )}
             </div>
           </div>
         ) : (
           <div
             ref={wrapRef}
-            className="relative h-[560px] select-none overflow-hidden border border-hairline/15"
+            className="relative select-none overflow-hidden border border-hairline/15"
+            style={{ height: containerHeight }}
             onPointerDown={(e) => {
               setDragging(true);
               setFromClientX(e.clientX);
@@ -351,14 +565,14 @@ const BeforeAfter = () => {
           >
             {/* After (right, full background) */}
             <div className="absolute inset-0">
-              <KozaiConsole />
+              <KozaiConsole playing={inView} />
             </div>
-            {/* Before (clipped from left — visible from 0 to pos%) */}
+            {/* Before (clipped from left) */}
             <div
               className="absolute inset-0"
               style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
             >
-              <Spreadsheet />
+              <Spreadsheet playing={inView} />
             </div>
 
             {/* Handle */}
@@ -370,7 +584,7 @@ const BeforeAfter = () => {
               aria-valuemax={100}
               aria-valuenow={Math.round(pos)}
               onKeyDown={onKeyDown}
-              className="absolute top-0 z-10 h-full w-px bg-signal"
+              className="absolute top-0 z-30 h-full w-px bg-signal"
               style={{ left: `calc(${pos}% - 0.5px)`, cursor: "ew-resize" }}
             >
               <span
@@ -379,11 +593,9 @@ const BeforeAfter = () => {
               >
                 ⇆
               </span>
-              {/* "before" label — sits LEFT of handle, over the spreadsheet */}
               <span className="absolute right-3 top-3 -translate-x-full whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.22em] text-signal">
                 before
               </span>
-              {/* "after" label — sits RIGHT of handle, over the console */}
               <span className="absolute left-3 top-3 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.22em] text-signal">
                 after
               </span>
