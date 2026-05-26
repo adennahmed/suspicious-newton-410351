@@ -190,12 +190,37 @@ const statusColor = (s: string) => {
  */
 const CURSOR_STEPS: number[] = [1, 3, 0, 6, 2, 4, 0, 6];
 
+// Rotating search-bar phrases that "type" themselves in.
+const SEARCH_PHRASES = [
+  "northgate",
+  "harlan foods",
+  "TRK-12",
+  "RT-2845",
+  "in transit",
+  "today · gta",
+];
+
+// Toast notifications that periodically slide in and out.
+const TOASTS = [
+  { kind: "NEW", body: "RT-2847 · Harlan Foods routed to TRK-21" },
+  { kind: "ETA", body: "RT-2844 · Atrium Partners is 3 min late" },
+  { kind: "MSG", body: "Marcus Hale: arrived at Dock B" },
+  { kind: "SYS", body: "Sync · 142 records updated" },
+];
+
 const KozaiConsole = ({ playing }: { playing: boolean }) => {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [stepI, setStepI] = useState(0);
   const [clicking, setClicking] = useState(false);
   const [ctaPulse, setCtaPulse] = useState(false);
   const [cursorXY, setCursorXY] = useState<{ x: number; y: number } | null>(null);
+  // Rows that have been "marked delivered" by the cursor — kept until the
+  // CURSOR_STEPS loop wraps, then cleared so the demo repeats forever.
+  const [deliveredOverride, setDeliveredOverride] = useState<Set<number>>(new Set());
+  // Auto-typing search field
+  const [searchText, setSearchText] = useState("");
+  // Notification toast
+  const [activeToast, setActiveToast] = useState<{ kind: string; body: string } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
@@ -203,6 +228,9 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
 
   const selected = DISPATCHES[selectedIdx];
   const currentTarget = CURSOR_STEPS[stepI % CURSOR_STEPS.length];
+
+  // Resolve a row's display status (with any override applied).
+  const statusOf = (i: number) => (deliveredOverride.has(i) ? "delivered" : DISPATCHES[i].status);
 
   // Cycle the cursor through steps
   useEffect(() => {
@@ -221,6 +249,22 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
         setClicking(true);
         if (target === 6) {
           setCtaPulse(true);
+          // Mark the currently selected row as delivered (sticky for this loop).
+          setDeliveredOverride((prev) => {
+            const next = new Set(prev);
+            // We don't know selectedIdx at this exact tick (closure), so use a setter pattern.
+            return next;
+          });
+          // Use a functional update against selectedIdx via state setter
+          // so we always read the latest value.
+          setSelectedIdx((curIdx) => {
+            setDeliveredOverride((prev) => {
+              const next = new Set(prev);
+              next.add(curIdx);
+              return next;
+            });
+            return curIdx;
+          });
           window.setTimeout(() => setCtaPulse(false), 700);
         } else {
           setSelectedIdx(target);
@@ -228,6 +272,10 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
         window.setTimeout(() => setClicking(false), 320);
       }, 900);
       i++;
+      // When the loop wraps, clear deliveries so the demo can repeat.
+      if (i % CURSOR_STEPS.length === 0) {
+        window.setTimeout(() => setDeliveredOverride(new Set()), 1800);
+      }
       window.setTimeout(tick, 2400);
     };
     const initial = window.setTimeout(tick, 700);
@@ -236,6 +284,58 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
       window.clearTimeout(initial);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing]);
+
+  // Auto-type the search field, hold, erase, advance.
+  useEffect(() => {
+    if (!playing) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) { setSearchText(""); return; }
+    let cancelled = false;
+    let phraseIdx = 0;
+    let charIdx = 0;
+    let mode: "type" | "hold" | "erase" = "type";
+    const tick = () => {
+      if (cancelled) return;
+      const phrase = SEARCH_PHRASES[phraseIdx % SEARCH_PHRASES.length];
+      let nextDelay = 100;
+      if (mode === "type") {
+        charIdx += 1;
+        setSearchText(phrase.slice(0, charIdx));
+        if (charIdx >= phrase.length) { mode = "hold"; nextDelay = 1400; }
+      } else if (mode === "hold") {
+        mode = "erase";
+        nextDelay = 60;
+      } else {
+        charIdx -= 1;
+        setSearchText(phrase.slice(0, charIdx));
+        if (charIdx <= 0) { mode = "type"; phraseIdx += 1; nextDelay = 600; }
+      }
+      window.setTimeout(tick, nextDelay);
+    };
+    const initial = window.setTimeout(tick, 1200);
+    return () => { cancelled = true; window.clearTimeout(initial); };
+  }, [playing]);
+
+  // Rotating toast — slides in, holds, slides out.
+  useEffect(() => {
+    if (!playing) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;
+    let cancelled = false;
+    let idx = 0;
+    const show = () => {
+      if (cancelled) return;
+      setActiveToast(TOASTS[idx % TOASTS.length]);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setActiveToast(null);
+      }, 3400);
+      idx += 1;
+      window.setTimeout(show, 5800);
+    };
+    const initial = window.setTimeout(show, 2400);
+    return () => { cancelled = true; window.clearTimeout(initial); };
   }, [playing]);
 
   // Recompute cursor position from the DOM whenever target changes
@@ -278,12 +378,24 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
           DISPATCH · v2.1
         </div>
         <div className="relative mx-auto hidden w-[200px] sm:block md:w-[280px]">
-          <input
-            disabled
-            value="Search route, customer, vehicle…"
-            className="w-full border border-ink/12 bg-paper px-3 py-1.5 font-mono text-[10px] text-mute/70 md:text-[11px]"
-            readOnly
-          />
+          <div className="flex h-[28px] items-center border border-ink/12 bg-paper px-3 font-mono text-[10px] text-ink md:text-[11px]">
+            <span aria-hidden className="mr-2 text-mute/60">⌕</span>
+            <span className="truncate">
+              {searchText || <span className="text-mute/55">Search route, customer, vehicle…</span>}
+            </span>
+            {playing && (
+              <span
+                aria-hidden
+                className="ml-0.5 inline-block w-[1px] self-center"
+                style={{
+                  height: "0.85em",
+                  background: "#0F0F12",
+                  opacity: 0.55,
+                  animation: "kz-caret-blink 1s steps(2,end) infinite",
+                }}
+              />
+            )}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center border border-ink/15 bg-ink/5 font-mono text-[10px] text-ink/70">
@@ -324,7 +436,10 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
           <ul>
             {DISPATCHES.map((d, i) => {
               const isActive = i === selectedIdx;
-              const sc = statusColor(d.status);
+              const status = statusOf(i);
+              const sc = statusColor(status);
+              const inTransit = status === "in transit";
+              const justDelivered = deliveredOverride.has(i);
               return (
                 <li
                   key={d.route}
@@ -342,10 +457,23 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
                   <div className="flex-1 truncate text-[12px] text-ink md:text-[13px]">{d.customer}</div>
                   <div className="hidden w-[54px] shrink-0 font-mono text-[10px] text-mute sm:block">{d.vehicle}</div>
                   <div
-                    className="font-mono text-[8.5px] uppercase tracking-[0.14em] px-1.5 py-0.5 md:text-[9px] md:tracking-[0.18em] md:px-2"
-                    style={{ color: sc.color, background: sc.bg }}
+                    key={`${i}-${status}`}
+                    className="relative flex items-center gap-1 font-mono text-[8.5px] uppercase tracking-[0.14em] px-1.5 py-0.5 md:text-[9px] md:tracking-[0.18em] md:px-2"
+                    style={{
+                      color: sc.color,
+                      background: sc.bg,
+                      transition: "color 220ms cubic-bezier(0.16,1,0.3,1), background 220ms cubic-bezier(0.16,1,0.3,1)",
+                      animation: justDelivered ? "kz-status-flip 0.5s cubic-bezier(0.16,1,0.3,1)" : undefined,
+                    }}
                   >
-                    {d.status}
+                    {inTransit && playing && (
+                      <span
+                        aria-hidden
+                        className="inline-block h-1 w-1 rounded-full"
+                        style={{ background: "#F5803E", animation: "kz-dot-pulse 1.4s ease-in-out infinite" }}
+                      />
+                    )}
+                    {status}
                   </div>
                   <div className="hidden w-[76px] shrink-0 text-right font-mono text-[10px] text-ink/70 sm:block">{d.eta}</div>
                 </li>
@@ -388,9 +516,13 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
 
           {/* Tiny route map */}
           <div className="mx-3 mb-3 border border-ink/10 bg-ink/[0.02] p-2 md:mx-4">
-            <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-mute">Route</div>
+            <div className="mb-1 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.22em] text-mute">
+              <span>Route</span>
+              <span className="text-ink/40">3 stops · 18.4 km</span>
+            </div>
             <svg viewBox="0 0 200 50" width="100%" height="36" aria-hidden>
               <path
+                id="kz-route-path"
                 d="M 8 35 Q 40 10, 70 30 T 130 22 T 192 14"
                 fill="none"
                 stroke="#0F0F12"
@@ -404,14 +536,31 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
               <circle cx="8" cy="35" r="2.5" fill="#0F0F12" />
               <circle cx="70" cy="30" r="2.5" fill="#0F0F12" />
               <circle cx="130" cy="22" r="2.5" fill="#0F0F12" />
-              <circle cx="192" cy="14" r="3" fill="#F5803E" />
+              <circle cx="192" cy="14" r="3" fill="#F5803E">
+                {playing && (
+                  <animate
+                    attributeName="r"
+                    values="3;4.2;3"
+                    dur="1.6s"
+                    repeatCount="indefinite"
+                  />
+                )}
+              </circle>
+              {/* Traveling truck dot — moves along the path */}
+              {playing && (
+                <circle r="2.6" fill="#F5803E" stroke="#0F0F12" strokeWidth="0.8">
+                  <animateMotion dur="4.5s" repeatCount="indefinite" rotate="auto">
+                    <mpath href="#kz-route-path" />
+                  </animateMotion>
+                </circle>
+              )}
             </svg>
           </div>
 
           <button
             ref={ctaRef}
             type="button"
-            className={`relative mx-3 mb-3 mt-auto border border-ink px-3 py-2 text-[12px] font-medium md:mx-4 md:mb-4 ${
+            className={`relative mx-3 mb-6 mt-auto border border-ink px-3 py-2 text-[12px] font-medium md:mx-4 md:mb-8 ${
               ctaPulse ? "scale-[0.97]" : "scale-100"
             }`}
             style={{
@@ -436,9 +585,39 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
         </div>
       </div>
 
+      {/* Toast — slides in from the right, holds, slides back. */}
+      {activeToast && (
+        <div
+          key={activeToast.body}
+          aria-hidden
+          className="pointer-events-none absolute right-3 top-[88px] z-30 hidden border border-ink/15 bg-paper px-3 py-2 md:right-5 md:flex md:items-center md:gap-3"
+          style={{
+            animation: "kz-toast-in 0.36s cubic-bezier(0.16,1,0.3,1)",
+            boxShadow: "0 0 0 1px rgba(15,15,18,0.04)",
+          }}
+        >
+          <span
+            className="font-mono text-[9px] uppercase tracking-[0.22em]"
+            style={{ color: "#F5803E" }}
+          >
+            {activeToast.kind}
+          </span>
+          <span className="text-[11px] text-ink/85">{activeToast.body}</span>
+        </div>
+      )}
+
       {/* Bottom status */}
       <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between border-t border-ink/12 bg-paper px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.18em] text-mute md:px-5 md:py-2 md:text-[10px] md:tracking-[0.22em]">
-        <span>[ ✦ — synced 12s ago ]</span>
+        <span className="flex items-center gap-1.5">
+          {playing && (
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: "#F5803E", animation: "kz-dot-pulse 1.6s ease-in-out infinite" }}
+            />
+          )}
+          <span>[ ✦ — synced 12s ago ]</span>
+        </span>
         <span className="hidden text-ink/70 sm:inline">6 active · 2 delivered today</span>
       </div>
 
@@ -612,8 +791,10 @@ const BeforeAfter = () => {
               setFromClientX(e.clientX);
             }}
           >
-            {/* After (right, full background) */}
-            <div className="absolute inset-0">
+            {/* After (right, full background) — `isolation: isolate` creates a
+                stacking context so the fake cursor (z-20) can never escape
+                above the spreadsheet overlay. */}
+            <div className="absolute inset-0" style={{ isolation: "isolate" }}>
               <KozaiConsole playing={inView} />
             </div>
             {/* Before (clipped from left) — z-10 so it sits above the
