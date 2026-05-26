@@ -38,18 +38,23 @@ const SHEET_ROWS = [
   ["SKU-9502", "Pinecrest Tag (alt)","Pinecrest Realty",   "ON",  "—",    "#N/A"],
 ] as const;
 
+// Column grid template — tuned so values aren't clipped on the right.
+// Item and Client both take fractional space; Client is *smaller* than Item.
+const COL_GRID = "60px minmax(0,1.3fr) minmax(0,1fr) 32px 48px 88px";
+
 const Spreadsheet = ({ playing }: { playing: boolean }) => {
   // Render the rows twice so a -50% translateY loop is seamless.
   const rows = [...SHEET_ROWS, ...SHEET_ROWS];
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#FBFAF6] font-mono text-[10px] text-ink/85 md:text-[11px]">
-      {/* Faux Excel toolbar */}
-      <div className="flex items-center gap-3 border-b border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[9px] uppercase tracking-[0.16em] text-ink/55 md:px-3 md:py-1.5 md:text-[10px]">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#FBFAF6] font-mono text-[10px] text-ink/85 md:text-[11px]">
+      {/* Faux Excel title bar */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[9px] uppercase tracking-[0.16em] text-ink/55 md:px-3 md:py-1.5 md:text-[10px]">
         <span className="truncate">inventory_2026_05_v17_FINAL_v2 (copy)(jen-edits).xlsx</span>
         <span className="ml-auto shrink-0 text-ink/40">— Excel</span>
       </div>
-      <div className="flex items-center gap-2 border-b border-ink/10 bg-[#F3EFE3] px-2.5 py-1 text-[9px] text-ink/60 md:px-3 md:text-[10px]">
+      {/* Formula bar */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-ink/10 bg-[#F3EFE3] px-2.5 py-1 text-[9px] text-ink/60 md:px-3 md:text-[10px]">
         <span>F12</span>
         <span className="text-ink/30">|</span>
         <span className="text-ink/55">fx</span>
@@ -57,16 +62,19 @@ const Spreadsheet = ({ playing }: { playing: boolean }) => {
       </div>
 
       {/* Column header row (static, never scrolls) */}
-      <div className="grid grid-cols-[64px_1fr_1.2fr_42px_56px_82px] border-b border-ink/15 bg-[#EDE8D9] text-[9px] uppercase tracking-[0.14em] text-ink/55 md:text-[10px]">
-        {["A · SKU", "B · Item", "C · Client", "D · Pv", "E · Qty", "F · Value"].map((h, i) => (
-          <div key={h} className={`px-2 py-1 ${i < 5 ? "border-r border-ink/15" : ""}`}>
+      <div
+        className="grid shrink-0 border-b border-ink/15 bg-[#EDE8D9] text-[9px] uppercase tracking-[0.14em] text-ink/55 md:text-[10px]"
+        style={{ gridTemplateColumns: COL_GRID }}
+      >
+        {["A · SKU", "B · Item", "C · Client", "D", "E · Qty", "F · Value"].map((h, i) => (
+          <div key={h} className={`truncate px-2 py-1 ${i < 5 ? "border-r border-ink/15" : ""}`}>
             {h}
           </div>
         ))}
       </div>
 
-      {/* Scrolling rows section */}
-      <div className="relative" style={{ height: "calc(100% - 188px)" }}>
+      {/* Scrolling rows section — fills remaining vertical space. */}
+      <div className="relative flex-1 overflow-hidden">
         <div
           className="absolute inset-0 overflow-hidden"
           style={{
@@ -97,9 +105,10 @@ const Spreadsheet = ({ playing }: { playing: boolean }) => {
               return (
                 <div
                   key={i}
-                  className={`grid grid-cols-[64px_1fr_1.2fr_42px_56px_82px] border-b border-ink/10 ${
+                  className={`grid border-b border-ink/10 ${
                     real % 2 ? "bg-[#FBFAF6]" : "bg-[#F6F2E6]"
                   }`}
+                  style={{ gridTemplateColumns: COL_GRID }}
                 >
                   {r.map((cell, ci) => {
                     const isErr = cell === "#REF!" || cell === "#ERROR!" || cell === "#N/A";
@@ -107,7 +116,7 @@ const Spreadsheet = ({ playing }: { playing: boolean }) => {
                     return (
                       <div
                         key={ci}
-                        className={`px-2 py-[3px] tabular-nums ${ci < 5 ? "border-r border-ink/10" : ""} ${ci === 1 || ci === 2 ? "truncate" : ""}`}
+                        className={`truncate px-2 py-[3px] tabular-nums ${ci < 5 ? "border-r border-ink/10" : ""}`}
                         style={{
                           color: isErr ? "#B5321A" : isTbd ? "#A85B12" : undefined,
                           background: isErr
@@ -117,6 +126,7 @@ const Spreadsheet = ({ playing }: { playing: boolean }) => {
                               : highlight,
                           fontWeight: isErr ? 600 : undefined,
                         }}
+                        title={cell}
                       >
                         {cell}
                       </div>
@@ -129,8 +139,8 @@ const Spreadsheet = ({ playing }: { playing: boolean }) => {
         </div>
       </div>
 
-      {/* Bottom tabs strip — static */}
-      <div className="absolute bottom-0 left-0 right-0 flex items-center gap-2.5 overflow-hidden border-t border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[8px] uppercase tracking-[0.12em] text-ink/55 md:gap-3 md:px-3 md:text-[9px] md:tracking-[0.14em]">
+      {/* Bottom tabs strip — sits flush at the bottom of the flex column. */}
+      <div className="flex shrink-0 items-center gap-2.5 overflow-hidden border-t border-ink/15 bg-[#E8E4D8] px-2.5 py-1 text-[8px] uppercase tracking-[0.12em] text-ink/55 md:gap-3 md:px-3 md:text-[9px] md:tracking-[0.14em]">
         <span>Sheet1</span>
         <span>Sheet2</span>
         <span className="hidden sm:inline">backup_2025-12-03 (3)</span>
@@ -185,8 +195,16 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
   const [stepI, setStepI] = useState(0);
   const [clicking, setClicking] = useState(false);
   const [ctaPulse, setCtaPulse] = useState(false);
-  const selected = DISPATCHES[selectedIdx];
+  const [cursorXY, setCursorXY] = useState<{ x: number; y: number } | null>(null);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const ctaRef = useRef<HTMLButtonElement>(null);
+
+  const selected = DISPATCHES[selectedIdx];
+  const currentTarget = CURSOR_STEPS[stepI % CURSOR_STEPS.length];
+
+  // Cycle the cursor through steps
   useEffect(() => {
     if (!playing) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -195,8 +213,8 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
     let i = stepI;
     const tick = () => {
       if (cancelled) return;
-      const target = CURSOR_STEPS[i % CURSOR_STEPS.length];
       setStepI(i);
+      const target = CURSOR_STEPS[i % CURSOR_STEPS.length];
       // After the cursor visibly arrives (~0.9s), trigger the "click".
       window.setTimeout(() => {
         if (cancelled) return;
@@ -217,21 +235,43 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
       cancelled = true;
       window.clearTimeout(initial);
     };
-    // intentionally only re-runs when playing flips
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
-  // Cursor target coordinates inside the console:
-  //  - rows 0..5 are at top: ~ (toolbar+top bar offset) + i*42
-  //  - CTA "Mark delivered" sits in the right detail panel near the bottom
-  const currentTarget = CURSOR_STEPS[stepI % CURSOR_STEPS.length];
-  const cursorPos =
-    currentTarget === 6
-      ? { left: "85%", top: "calc(100% - 60px)" }
-      : { left: "42%", top: `calc(96px + ${currentTarget * 42}px)` };
+  // Recompute cursor position from the DOM whenever target changes
+  // (also after resize so it stays accurate).
+  useEffect(() => {
+    if (!playing) return;
+    const compute = () => {
+      const root = rootRef.current;
+      if (!root) return;
+      const rootRect = root.getBoundingClientRect();
+      let targetRect: DOMRect | undefined;
+      let offsetX = 0;
+      if (currentTarget === 6) {
+        const el = ctaRef.current;
+        if (!el) return;
+        targetRect = el.getBoundingClientRect();
+        // tip lands ~65% across the button
+        offsetX = targetRect.width * 0.55;
+      } else {
+        const el = rowRefs.current[currentTarget];
+        if (!el) return;
+        targetRect = el.getBoundingClientRect();
+        // tip lands ~30% across the row (over the customer name)
+        offsetX = Math.min(140, targetRect.width * 0.3);
+      }
+      const x = targetRect.left - rootRect.left + offsetX;
+      const y = targetRect.top - rootRect.top + targetRect.height * 0.5;
+      setCursorXY({ x, y });
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [currentTarget, selectedIdx, playing]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-paper">
+    <div ref={rootRef} className="relative h-full w-full overflow-hidden bg-paper">
       {/* Top bar */}
       <div className="flex items-center gap-3 border-b border-ink/12 px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
         <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-mute md:text-[10px] md:tracking-[0.28em]">
@@ -284,12 +324,11 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
           <ul>
             {DISPATCHES.map((d, i) => {
               const isActive = i === selectedIdx;
-              const isTargeting =
-                playing && CURSOR_STEPS[stepI % CURSOR_STEPS.length] === i;
               const sc = statusColor(d.status);
               return (
                 <li
                   key={d.route}
+                  ref={(el) => { rowRefs.current[i] = el; }}
                   className="relative flex items-center gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-2.5"
                   style={{
                     borderBottom: "1px solid rgba(15,15,18,0.08)",
@@ -298,20 +337,7 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
                     transition: "background 220ms cubic-bezier(0.16,1,0.3,1), border-color 220ms",
                   }}
                 >
-                  {/* Click ripple */}
-                  {isTargeting && clicking && (
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute left-[42%] top-1/2 -translate-x-1/2 -translate-y-1/2"
-                      style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: "50%",
-                        border: "1.5px solid #F5803E",
-                        animation: "kz-cursor-ripple 0.42s cubic-bezier(0.16,1,0.3,1)",
-                      }}
-                    />
-                  )}
+                  {/* Cursor + ripple now live at the console root (see below) for accurate positioning. */}
                   <div className="w-[58px] shrink-0 font-mono text-[10px] text-ink/85 md:text-[11px]">{d.route}</div>
                   <div className="flex-1 truncate text-[12px] text-ink md:text-[13px]">{d.customer}</div>
                   <div className="hidden w-[54px] shrink-0 font-mono text-[10px] text-mute sm:block">{d.vehicle}</div>
@@ -327,30 +353,6 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
             })}
           </ul>
 
-          {/* Fake cursor — sits inside the rows section so coords are local. */}
-          {playing && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute z-20 hidden md:block"
-              style={{
-                left: cursorPos.left,
-                top: cursorPos.top,
-                transform: clicking ? "translate(-2px,-2px) scale(0.92)" : "translate(0,0) scale(1)",
-                transition:
-                  "left 0.7s cubic-bezier(0.16,1,0.3,1), top 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1)",
-              }}
-            >
-              <svg width="18" height="22" viewBox="0 0 18 22" fill="none">
-                <path
-                  d="M2 1 L2 17 L6 13 L9 20 L11.5 19 L8.5 12 L14 12 Z"
-                  fill="#0F0F12"
-                  stroke="#F1EEE5"
-                  strokeWidth="1.1"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-          )}
         </div>
 
         {/* Detail panel */}
@@ -407,6 +409,7 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
           </div>
 
           <button
+            ref={ctaRef}
             type="button"
             className={`relative mx-3 mb-3 mt-auto border border-ink px-3 py-2 text-[12px] font-medium md:mx-4 md:mb-4 ${
               ctaPulse ? "scale-[0.97]" : "scale-100"
@@ -438,6 +441,52 @@ const KozaiConsole = ({ playing }: { playing: boolean }) => {
         <span>[ ✦ — synced 12s ago ]</span>
         <span className="hidden text-ink/70 sm:inline">6 active · 2 delivered today</span>
       </div>
+
+      {/* Fake cursor (desktop only) — positioned at the console root so it
+          can travel between the rows list and the detail-panel CTA. Coords
+          come from real refs, so the tip lines up with the click target. */}
+      {playing && cursorXY && (
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute z-20 hidden md:block"
+            style={{
+              left: cursorXY.x - 2,
+              top: cursorXY.y - 1,
+              transform: clicking ? "scale(0.9)" : "scale(1)",
+              transformOrigin: "2px 1px",
+              transition:
+                "left 0.65s cubic-bezier(0.16,1,0.3,1), top 0.65s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1)",
+            }}
+          >
+            <svg width="18" height="22" viewBox="0 0 18 22" fill="none">
+              <path
+                d="M2 1 L2 17 L6 13 L9 20 L11.5 19 L8.5 12 L14 12 Z"
+                fill="#0F0F12"
+                stroke="#F1EEE5"
+                strokeWidth="1.1"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          {clicking && (
+            <span
+              key={`${stepI}-ripple`}
+              aria-hidden
+              className="pointer-events-none absolute z-20 hidden md:block"
+              style={{
+                left: cursorXY.x - 11,
+                top: cursorXY.y - 11,
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                border: "1.5px solid #F5803E",
+                animation: "kz-cursor-ripple-fixed 0.42s cubic-bezier(0.16,1,0.3,1)",
+              }}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -567,9 +616,10 @@ const BeforeAfter = () => {
             <div className="absolute inset-0">
               <KozaiConsole playing={inView} />
             </div>
-            {/* Before (clipped from left) */}
+            {/* Before (clipped from left) — z-10 so it sits above the
+                After-side fake cursor in the compare view. */}
             <div
-              className="absolute inset-0"
+              className="absolute inset-0 z-10"
               style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
             >
               <Spreadsheet playing={inView} />

@@ -1318,3 +1318,9 @@ section[data-snap] {
     animation: none !important;
   }
 }
+
+/* Cursor ripple positioned at fixed coords (no centering transform) */
+@keyframes kz-cursor-ripple-fixed {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to   { opacity: 0;   transform: scale(1.7); }
+}
